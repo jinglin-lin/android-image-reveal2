@@ -1,0 +1,21 @@
+{
+  "name": "图层擦除工具",
+  "short_name": "擦除工具",
+  "description": "一个简单的图片图层擦除工具",
+  "start_url": "./layer-eraser.html",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%231a1a2e'/%3E%3Ccircle cx='50' cy='50' r='40' fill='%23e94560'/%3E%3C/svg%3E",
+      "sizes": "100x100",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%231a1a2e'/%3E%3Ccircle cx='256' cy='256' r='200' fill='%23e94560'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
