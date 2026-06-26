@@ -395,46 +395,39 @@
         }
 
         // 【新增】自动横向扩散擦除更新 mask
-        function updateMaskByHorizontalProgress() {
-            if (!state.maskData || !state.fgImage) return;
+// 自动横向扩散擦除 - 真正的横线扫描
+function updateMaskByHorizontalProgress() {
+    if (!state.maskData || !state.fgImage) return;
 
-            const imgWidth = state.fgImage.width;
-            const imgHeight = state.fgImage.height;
-            const centerX = state.animCenterX;
-            const startY = state.animStartY;
-            const endY = state.animEndY;
-            const currentY = startY + (endY - startY) * state.animProgress;
-            const feather = Math.max(imgHeight * 0.08, 20);
+    const imgWidth = state.fgImage.width;
+    const imgHeight = state.fgImage.height;
+    const centerX = state.animCenterX;
+    
+    // 当前扫描到的 Y 位置（从下往上）
+    const currentY = state.animStartY + (state.animEndY - state.animStartY) * state.animProgress;
+    
+    // 柔和边缘大小
+    const feather = Math.max(imgHeight * 0.05, 20);
 
-            for (let y = 0; y < imgHeight; y++) {
-                for (let x = 0; x < imgWidth; x++) {
-                    // 纵向距离到扫描线
-                    const dy = Math.abs(y - currentY);
-                    // 横向距离到点击点
-                    const dx = Math.abs(x - centerX);
-                    // 横向扩散范围（根据 y 动态）
-                    const maxSpreadX = imgWidth * 0.6 * (1 - Math.abs(y - centerX) / imgHeight);
-                    
-                    // 组合距离场
-                    const verticalDist = dy;
-                    const horizontalDist = dx - maxSpreadX * state.animProgress;
-                    
-                    if (y <= currentY && dx < maxSpreadX * state.animProgress) {
-                        const idx = y * imgWidth + x;
-                        
-                        // 边缘羽化
-                        const vAlpha = smoothstep(-feather, 0, y - currentY);
-                        const hAlpha = smoothstep(-feather, 0, dx - maxSpreadX * state.animProgress);
-                        const alpha = Math.max(vAlpha, hAlpha);
-                        
-                        state.maskData[idx] = Math.min(state.maskData[idx], Math.floor(alpha * 255));
-                    }
-                }
+    for (let y = 0; y < imgHeight; y++) {
+        for (let x = 0; x < imgWidth; x++) {
+            const idx = y * imgWidth + x;
+            
+            // 只有扫描线以下的区域才被擦除
+            if (y > currentY) {
+                // 已经扫过的地方，完全透明
+                state.maskData[idx] = 0;
+            } else if (y > currentY - feather) {
+                // 扫描线边缘，渐变透明
+                const t = (y - (currentY - feather)) / feather;
+                // t: 0（完全透明） -> 1（不透明）
+                state.maskData[idx] = Math.min(state.maskData[idx], Math.floor(t * 255));
             }
-
-            state.needsRender = true;
         }
+    }
 
+    state.needsRender = true;
+}
         // ========== 渲染模块 ==========
         function render() {
             if (!state.bgImage && !state.fgImage) return;
