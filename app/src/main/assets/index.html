@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>图层擦除工具</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 12px;
+        }
+        
+        .header {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .file-input-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        
+        input[type="file"] {
+            display: none;
+        }
+        
+        .file-label {
+            background: #16213e;
+            padding: 10px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            border: 1px solid #0f3460;
+            font-size: 14px;
+        }
+        
+        .file-label:hover, .file-label:active {
+            background: #0f3460;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-left: auto;
+            flex-wrap: wrap;
+        }
+        
+        .brush-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        input[type="range"] {
+            width: 100px;
+        }
+        
+        .btn {
+            background: #e94560;
+            border: none;
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: white;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 14px;
+        }
+        
+        .btn:hover, .btn:active {
+            background: #c73e54;
+        }
+        
+        /* 【新增】模式切换器样式 */
+        .mode-switcher {
+            display: flex;
+            gap: 4px;
+            background: #16213e;
+            padding: 4px;
+            border-radius: 8px;
+        }
+        
+        .mode-btn {
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            background: transparent;
+            color: #888;
+            font-size: 13px;
+        }
+        
+        .mode-btn.active {
+            background: #e94560;
+            color: white;
+        }
+        
+        .canvas-wrapper {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #0f0f23;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        canvas {
+            display: block;
+            touch-action: none;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        
+        .placeholder {
+            position: absolute;
+            text-align: center;
+            color: #666;
+            pointer-events: none;
+            font-size: 14px;
+        }
+        
+        /* 移动端适配 */
+        @media (max-width: 768px) {
+            .container {
+                padding: 8px;
+            }
+            
+            .header {
+                gap: 8px;
+                margin-bottom: 8px;
+            }
+            
+            .file-label, .btn {
+                padding: 8px 12px;
+                font-size: 13px;
+            }
+            
+            .controls {
+                width: 100%;
+                margin-left: 0;
+                gap: 8px;
+            }
+            
+            .mode-switcher {
+                width: 100%;
+            }
+            
+            .mode-btn {
+                flex: 1;
+                padding: 10px 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="file-input-wrapper">
+                <label class="file-label">
+                    📂 底层图 B
+                    <input type="file" id="bgInput" accept="image/*">
+                </label>
+                <label class="file-label">
+                    📂 上层图 A
+                    <input type="file" id="fgInput" accept="image/*">
+                </label>
+            </div>
+            <div class="controls">
+                <!-- 【新增】模式切换器 -->
+                <div class="mode-switcher" id="modeSwitcher">
+                    <button class="mode-btn active" data-mode="manual">🖌️ 手动擦除</button>
+                    <button class="mode-btn" data-mode="auto">🌊 自动扩散</button>
+                </div>
+                <div class="brush-control">
+                    <span id="controlLabel">🖌️ 笔刷:</span>
+                    <input type="range" id="sizeSlider" min="5" max="150" value="40">
+                    <span id="sizeVal">40px</span>
+                </div>
+                <button class="btn" id="resetBtn">🔄 重置</button>
+            </div>
+        </div>
+        <div class="canvas-wrapper" id="canvasWrapper">
+            <canvas id="mainCanvas"></canvas>
+            <div class="placeholder" id="placeholder">请先导入两张图片</div>
+        </div>
+    </div>
+
+    <script>
+        // ========== 状态管理 ==========
+        const state = {
+            bgImage: null,
+            fgImage: null,
+            maskData: null,
+            brushSize: 40,
+            spreadSpeed: 4,
+            canvasWidth: 0,
+            canvasHeight: 0,
+            bgDrawX: 0,
+            bgDrawY: 0,
+            bgDrawWidth: 0,
+            bgDrawHeight: 0,
+            needsRender: false,
+            isAnimating: false,
+            isDrawing: false,
+            currentMode: 'manual', // 'manual' 或 'auto'
+            
+            // 圆形扩散状态
+            animCenterX: 0,
+            animCenterY: 0,
+            animRadius: 0,
+            animMaxRadius: 0,
+            
+            // 横向扩散状态
+            animProgress: 0,
+            animStartY: 0,
+            animEndY: 0,
+            
+            lastPointerX: 0,
+            lastPointerY: 0,
+            lastTime: 0
+        };
+
+        // ========== DOM 元素 ==========
+        const mainCanvas = document.getElementById('mainCanvas');
+        const ctx = mainCanvas.getContext('2d', { willReadFrequently: true });
+        const canvasWrapper = document.getElementById('canvasWrapper');
+        const bgInput = document.getElementById('bgInput');
+        const fgInput = document.getElementById('fgInput');
+        const sizeSlider = document.getElementById('sizeSlider');
+        const sizeVal = document.getElementById('sizeVal');
+        const controlLabel = document.getElementById('controlLabel');
+        const resetBtn = document.getElementById('resetBtn');
+        const placeholder = document.getElementById('placeholder');
+        const modeSwitcher = document.getElementById('modeSwitcher');
+
+        // ========== 图片加载模块 ==========
+        function loadImage(file) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
+        async function handleBgImageChange(e) {
+            const file = e.target.files[0];
+            if (file) {
+                state.bgImage = await loadImage(file);
+                updateLayout();
+                initMask();
+                render();
+                updatePlaceholder();
+            }
+        }
+
+        async function handleFgImageChange(e) {
+            const file = e.target.files[0];
+            if (file) {
+                state.fgImage = await loadImage(file);
+                updateLayout();
+                initMask();
+                render();
+                updatePlaceholder();
+            }
+        }
+
+        // ========== 布局计算模块 ==========
+        function updateLayout() {
+            if (state.fgImage) {
+                state.canvasWidth = state.fgImage.width;
+                state.canvasHeight = state.fgImage.height;
+                mainCanvas.width = state.canvasWidth;
+                mainCanvas.height = state.canvasHeight;
+
+                if (state.bgImage) {
+                    const canvasRatio = state.canvasWidth / state.canvasHeight;
+                    const bgRatio = state.bgImage.width / state.bgImage.height;
+                    if (bgRatio > canvasRatio) {
+                        state.bgDrawWidth = state.canvasWidth;
+                        state.bgDrawHeight = state.canvasWidth / bgRatio;
+                        state.bgDrawX = 0;
+                        state.bgDrawY = (state.canvasHeight - state.bgDrawHeight) / 2;
+                    } else {
+                        state.bgDrawHeight = state.canvasHeight;
+                        state.bgDrawWidth = state.canvasHeight * bgRatio;
+                        state.bgDrawY = 0;
+                        state.bgDrawX = (state.canvasWidth - state.bgDrawWidth) / 2;
+                    }
+                }
+            }
+        }
+
+        // ========== Mask 模块 ==========
+        function initMask() {
+            if (!state.fgImage) return;
+            state.maskData = new Uint8ClampedArray(state.fgImage.width * state.fgImage.height);
+            state.maskData.fill(255);
+        }
+
+        function resetMask() {
+            if (state.maskData) {
+                state.maskData.fill(255);
+                state.isAnimating = false;
+                state.isDrawing = false;
+                state.animRadius = 0;
+                state.animProgress = 0;
+                render();
+            }
+        }
+
+        // 【优化】smoothstep 函数实现自然的羽化过渡
+        function smoothstep(edge0, edge1, x) {
+            const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+            return t * t * (3 - 2 * t);
+        }
+
+        // 【优化】Easing 函数让动画更自然
+        function easeOutQuad(t) {
+            return t * (2 - t);
+        }
+
+        // 【新增】自由擦除模式 - 绘制笔刷
+        function drawBrush(cx, cy) {
+            if (!state.maskData || !state.fgImage) return;
+
+            const imgWidth = state.fgImage.width;
+            const imgHeight = state.fgImage.height;
+            const radius = state.brushSize;
+            const feather = Math.max(radius * 0.3, 5);
+
+            const startX = Math.max(0, Math.floor(cx - radius));
+            const startY = Math.max(0, Math.floor(cy - radius));
+            const endX = Math.min(imgWidth, Math.ceil(cx + radius));
+            const endY = Math.min(imgHeight, Math.ceil(cy + radius));
+
+            for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                    const dx = x - cx;
+                    const dy = y - cy;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < radius) {
+                        const idx = y * imgWidth + x;
+                        // 使用 smoothstep 实现自然羽化
+                        const alpha = smoothstep(radius - feather, radius, dist);
+                        state.maskData[idx] = Math.min(state.maskData[idx], Math.floor(alpha * 255));
+                    }
+                }
+            }
+
+            state.needsRender = true;
+        }
+
+        // 【新增】自由擦除 - 绘制线段（两点间插值）
+        function drawLine(x0, y0, x1, y1) {
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const steps = Math.max(1, Math.floor(dist / (state.brushSize * 0.3)));
+
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const x = x0 + dx * t;
+                const y = y0 + dy * t;
+                drawBrush(x, y);
+            }
+        }
+
+        // 【新增】自动横向扩散擦除更新 mask
+        function updateMaskByHorizontalProgress() {
+            if (!state.maskData || !state.fgImage) return;
+
+            const imgWidth = state.fgImage.width;
+            const imgHeight = state.fgImage.height;
+            const centerX = state.animCenterX;
+            const startY = state.animStartY;
+            const endY = state.animEndY;
+            const currentY = startY + (endY - startY) * state.animProgress;
+            const feather = Math.max(imgHeight * 0.08, 20);
+
+            for (let y = 0; y < imgHeight; y++) {
+                for (let x = 0; x < imgWidth; x++) {
+                    // 纵向距离到扫描线
+                    const dy = Math.abs(y - currentY);
+                    // 横向距离到点击点
+                    const dx = Math.abs(x - centerX);
+                    // 横向扩散范围（根据 y 动态）
+                    const maxSpreadX = imgWidth * 0.6 * (1 - Math.abs(y - centerX) / imgHeight);
+                    
+                    // 组合距离场
+                    const verticalDist = dy;
+                    const horizontalDist = dx - maxSpreadX * state.animProgress;
+                    
+                    if (y <= currentY && dx < maxSpreadX * state.animProgress) {
+                        const idx = y * imgWidth + x;
+                        
+                        // 边缘羽化
+                        const vAlpha = smoothstep(-feather, 0, y - currentY);
+                        const hAlpha = smoothstep(-feather, 0, dx - maxSpreadX * state.animProgress);
+                        const alpha = Math.max(vAlpha, hAlpha);
+                        
+                        state.maskData[idx] = Math.min(state.maskData[idx], Math.floor(alpha * 255));
+                    }
+                }
+            }
+
+            state.needsRender = true;
+        }
+
+        // ========== 渲染模块 ==========
+        function render() {
+            if (!state.bgImage && !state.fgImage) return;
+
+            ctx.clearRect(0, 0, state.canvasWidth, state.canvasHeight);
+
+            if (state.bgImage) {
+                ctx.drawImage(
+                    state.bgImage,
+                    state.bgDrawX,
+                    state.bgDrawY,
+                    state.bgDrawWidth,
+                    state.bgDrawHeight
+                );
+            }
+
+            if (state.fgImage && state.maskData) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = state.fgImage.width;
+                tempCanvas.height = state.fgImage.height;
+                const tempCtx = tempCanvas.getContext('2d');
+
+                tempCtx.drawImage(state.fgImage, 0, 0);
+
+                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                const data = imageData.data;
+
+                for (let i = 0; i < state.maskData.length; i++) {
+                    data[i * 4 + 3] = state.maskData[i];
+                }
+
+                tempCtx.putImageData(imageData, 0, 0);
+                ctx.drawImage(tempCanvas, 0, 0);
+            }
+        }
+
+        // ========== 动画循环 ==========
+        function animationLoop(timestamp) {
+            if (state.isAnimating) {
+                const deltaTime = state.lastTime ? timestamp - state.lastTime : 16;
+                state.lastTime = timestamp;
+
+                if (state.currentMode === 'auto') {
+                    // 横向扩散动画
+                    const speed = state.spreadSpeed * 0.003;
+                    state.animProgress += speed * deltaTime;
+                    
+                    if (state.animProgress >= 1) {
+                        state.animProgress = 1;
+                        state.isAnimating = false;
+                    }
+                    
+                    updateMaskByHorizontalProgress();
+                } else {
+                    // 兼容旧的圆形扩散（备用）
+                    state.animRadius += state.spreadSpeed * deltaTime * 0.1;
+                    if (state.animRadius >= state.animMaxRadius) {
+                        state.animRadius = state.animMaxRadius;
+                        state.isAnimating = false;
+                    }
+                }
+            }
+
+            if (state.needsRender) {
+                render();
+                state.needsRender = false;
+            }
+
+            requestAnimationFrame(animationLoop);
+        }
+
+        // ========== 交互模块 ==========
+        function getPointerPos(e) {
+            const rect = mainCanvas.getBoundingClientRect();
+            const pointer = e.touches ? e.touches[0] : e;
+            
+            const screenX = pointer.clientX - rect.left;
+            const screenY = pointer.clientY - rect.top;
+            
+            const scaleX = state.canvasWidth / rect.width;
+            const scaleY = state.canvasHeight / rect.height;
+            
+            return { x: screenX * scaleX, y: screenY * scaleY };
+        }
+
+        function handlePointerDown(e) {
+            e.preventDefault();
+            if (!state.fgImage || !state.maskData) return;
+
+            const pos = getPointerPos(e);
+
+            if (state.currentMode === 'manual') {
+                // 自由擦除模式
+                if (!state.isAnimating) {
+                    state.isDrawing = true;
+                    state.lastPointerX = pos.x;
+                    state.lastPointerY = pos.y;
+                    drawBrush(pos.x, pos.y);
+                }
+            } else {
+                // 自动扩散模式
+                if (!state.isAnimating) {
+                    state.animCenterX = pos.x;
+                    state.animCenterY = pos.y;
+                    state.animProgress = 0;
+                    state.animStartY = state.canvasHeight; // 从底部开始
+                    state.animEndY = 0; // 到顶部结束
+                    state.isAnimating = true;
+                    state.lastTime = 0;
+                }
+            }
+        }
+
+        function handlePointerMove(e) {
+            e.preventDefault();
+            if (!state.isDrawing || state.currentMode !== 'manual') return;
+
+            const pos = getPointerPos(e);
+            drawLine(state.lastPointerX, state.lastPointerY, pos.x, pos.y);
+            state.lastPointerX = pos.x;
+            state.lastPointerY = pos.y;
+        }
+
+        function handlePointerUp(e) {
+            state.isDrawing = false;
+        }
+
+        // ========== 模式切换 ==========
+        function switchMode(mode) {
+            state.currentMode = mode;
+            state.isAnimating = false;
+            state.isDrawing = false;
+            
+            // 更新 UI
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === mode);
+            });
+            
+            // 更新控制标签
+            if (mode === 'manual') {
+                controlLabel.textContent = '🖌️ 笔刷:';
+                sizeSlider.min = 5;
+                sizeSlider.max = 150;
+                sizeSlider.value = state.brushSize;
+                sizeVal.textContent = state.brushSize + 'px';
+            } else {
+                controlLabel.textContent = '⚡ 速度:';
+                sizeSlider.min = 1;
+                sizeSlider.max = 10;
+                sizeSlider.value = state.spreadSpeed;
+                sizeVal.textContent = state.spreadSpeed + 'x';
+            }
+        }
+
+        // ========== 事件绑定 ==========
+        bgInput.addEventListener('change', handleBgImageChange);
+        fgInput.addEventListener('change', handleFgImageChange);
+
+        sizeSlider.addEventListener('input', (e) => {
+            if (state.currentMode === 'manual') {
+                state.brushSize = parseInt(e.target.value);
+                sizeVal.textContent = state.brushSize + 'px';
+            } else {
+                state.spreadSpeed = parseInt(e.target.value);
+                sizeVal.textContent = state.spreadSpeed + 'x';
+            }
+        });
+
+        resetBtn.addEventListener('click', resetMask);
+
+        // 【新增】模式切换事件
+        modeSwitcher.addEventListener('click', (e) => {
+            if (e.target.classList.contains('mode-btn')) {
+                switchMode(e.target.dataset.mode);
+            }
+        });
+
+        // Pointer Events
+        mainCanvas.addEventListener('pointerdown', handlePointerDown);
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerUp);
+
+        function updatePlaceholder() {
+            placeholder.style.display = (state.bgImage && state.fgImage) ? 'none' : 'block';
+        }
+
+        // ========== PWA 初始化 ==========
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js')
+                .catch(err => console.log('Service Worker registration failed:', err));
+        }
+
+        // ========== 初始化 ==========
+        requestAnimationFrame(animationLoop);
+    </script>
+</body>
+</html>
